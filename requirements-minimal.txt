@@ -1,0 +1,20 @@
+# Minimal requirements for education agent system
+# Use this if you have issues with the full requirements.txt
+
+# Core dependencies
+fastapi==0.110.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.1
+
+# Database
+sqlalchemy==2.0.25
+
+# LLM
+langchain==0.1.6
+langchain-openai==0.0.5
+openai==1.12.0
+
+# ChromaDB - install separately if needed
+# pip install chromadb==0.4.24 --no-deps 
