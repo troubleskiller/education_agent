@@ -14,7 +14,7 @@ from ...schemas.teaching import (
 )
 from ...services.teaching_service import TeachingService
 
-router = APIRouter(prefix="/teaching", tags=["teaching"])
+router = APIRouter(prefix="", tags=["teaching"])
 
 
 @router.post("/start", response_model=TeachingSessionResponse)

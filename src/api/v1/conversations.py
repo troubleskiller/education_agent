@@ -16,7 +16,7 @@ from ...schemas.conversation import (
 )
 from ...services.conversation_service import ConversationService
 
-router = APIRouter(prefix="/conversations", tags=["conversations"])
+router = APIRouter(prefix="", tags=["conversations"])
 
 
 @router.post("/start", response_model=ConversationResponse)

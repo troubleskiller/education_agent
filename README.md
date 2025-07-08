@@ -31,12 +31,22 @@
    - 互动式学习体验
    - 自适应教学策略
 
+### 核心技术
+
+1. **向量数据库 (本地ChromaDB)**
+   - 使用ChromaDB本地持久化存储，无需云服务
+   - 支持两种嵌入模型：
+     - OpenAI嵌入（效果好，需付费）
+     - 本地嵌入模型（完全免费）
+   - 存储学习计划、教学材料和学生档案
+   - 支持语义搜索和相似度匹配
+
 ## 技术栈
 
-- **后端框架**: FastAPI
-- **数据库**: SQLAlchemy + SQLite/PostgreSQL
-- **向量数据库**: ChromaDB Cloud
-- **LLM框架**: LangChain
+- **后端框架**: FastAPI + SQLAlchemy
+- **数据库**: SQLite (可扩展至PostgreSQL)
+- **向量存储**: ChromaDB (本地持久化存储)
+- **LLM集成**: LangChain
 - **支持的LLM**: OpenAI、Azure OpenAI、DeepSeek、通义千问、Claude
 
 ## 快速开始

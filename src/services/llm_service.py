@@ -3,11 +3,13 @@ LLM服务 - 处理与大语言模型的交互
 """
 import json
 from typing import List, Dict, Optional, Tuple
+
+from langchain_community.callbacks import get_openai_callback
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_community.chat_models import ChatAnthropic
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.schema import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from langchain.callbacks import get_openai_callback
+# from langchain.callbacks import get_openai_callback
 
 from ..core.config import settings
 from ..models.conversation import MessageRole

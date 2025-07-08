@@ -1,318 +1,272 @@
 """
-RAG服务 - 管理向量数据库和知识检索
+RAG（检索增强生成）服务
 """
-import os
-import json
-from typing import List, Dict, Optional
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain.docstore.document import Document
 import chromadb
+from chromadb.config import Settings as ChromaSettings
+from langchain.embeddings import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from typing import List, Dict, Any
+import json
+import uuid
 
 from ..core.config import settings
 
 
 class RAGService:
-    """RAG服务类"""
+    """RAG服务类，使用本地ChromaDB"""
     
     def __init__(self):
         """初始化RAG服务"""
-        # 初始化嵌入模型
-        self.embeddings = OpenAIEmbeddings(
-            openai_api_key=settings.openai_api_key,
-            openai_api_base=settings.openai_api_base
+        # 初始化本地ChromaDB客户端
+        self.client = chromadb.PersistentClient(
+            path=settings.vector_db_path,
+            settings=ChromaSettings(
+                anonymized_telemetry=False,
+                allow_reset=True
+            )
         )
+        
+        # 初始化嵌入模型
+        if settings.embeddings_provider == "openai":
+            # 使用OpenAI的嵌入模型
+            self.embeddings = OpenAIEmbeddings(
+                api_key=settings.openai_api_key,
+                model="text-embedding-3-small"  # 使用较小的模型以降低成本
+            )
+        else:
+            # 使用本地嵌入模型（免费）
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name=settings.local_embeddings_model,
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
         
         # 初始化文本分割器
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50,
+            chunk_size=1000,
+            chunk_overlap=200,
             separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?", " ", ""]
         )
         
-        # 初始化ChromaDB云客户端
-        self.chroma_client = chromadb.CloudClient(
-            api_key=settings.chroma_api_key,
-            tenant=settings.chroma_tenant,
-            database=settings.chroma_database
-        )
-        
-        # 创建不同的集合
+        # 创建或获取集合
         self._init_collections()
     
     def _init_collections(self):
         """初始化向量数据库集合"""
         # 学习计划集合
-        self.learning_plans_collection = "learning_plans"
+        self.learning_plans_collection = self.client.get_or_create_collection(
+            name="learning_plans",
+            metadata={"description": "存储学生的个性化学习计划"}
+        )
         
         # 教学材料集合
-        self.teaching_materials_collection = "teaching_materials"
+        self.teaching_materials_collection = self.client.get_or_create_collection(
+            name="teaching_materials",
+            metadata={"description": "存储教学材料和知识点"}
+        )
         
         # 学生档案集合
-        self.student_profiles_collection = "student_profiles"
-        
-        # 确保集合存在
-        try:
-            self.chroma_client.get_or_create_collection(name=self.learning_plans_collection)
-            self.chroma_client.get_or_create_collection(name=self.teaching_materials_collection)
-            self.chroma_client.get_or_create_collection(name=self.student_profiles_collection)
-        except Exception as e:
-            print(f"创建集合时出错: {e}")
+        self.student_profiles_collection = self.client.get_or_create_collection(
+            name="student_profiles",
+            metadata={"description": "存储学生档案和学习历史"}
+        )
     
-    def store_learning_plan(self, student_id: str, plan_id: str, plan_content: Dict):
+    def store_learning_plan(self, student_id: str, plan_id: str, plan_data: Dict[str, Any]):
         """存储学习计划到向量数据库"""
-        # 将学习计划转换为文本
-        plan_text = self._format_learning_plan(plan_content)
+        # 准备文档内容
+        doc_content = f"""
+学生ID: {student_id}
+计划标题: {plan_data.get('title', '')}
+计划描述: {plan_data.get('description', '')}
+学习目标: {', '.join(plan_data.get('objectives', []))}
+预计时长: {plan_data.get('estimated_days', 0)}天
+难度级别: {plan_data.get('difficulty_level', 0)}/5
+
+详细内容:
+{json.dumps(plan_data.get('content', {}), ensure_ascii=False, indent=2)}
+"""
         
-        # 创建文档
-        documents = [
-            Document(
-                page_content=plan_text,
-                metadata={
-                    "student_id": student_id,
-                    "plan_id": plan_id,
-                    "type": "learning_plan",
-                    "title": plan_content.get("title", ""),
-                    "created_at": plan_content.get("created_at", "")
-                }
-            )
-        ]
+        # 获取嵌入向量
+        embedding = self.embeddings.embed_query(doc_content)
         
-        # 分割文本
-        splits = self.text_splitter.split_documents(documents)
-        
-        # 创建或获取向量存储
-        vectorstore = Chroma(
-            client=self.chroma_client,
-            collection_name=self.learning_plans_collection,
-            embedding_function=self.embeddings
+        # 存储到ChromaDB
+        self.learning_plans_collection.add(
+            ids=[plan_id],
+            embeddings=[embedding],
+            documents=[doc_content],
+            metadatas=[{
+                "student_id": student_id,
+                "plan_id": plan_id,
+                "title": plan_data.get('title', ''),
+                "created_at": plan_data.get('created_at', ''),
+                "type": "learning_plan"
+            }]
         )
-        
-        # 添加文档
-        vectorstore.add_documents(splits)
     
-    def search_learning_plans(self, query: str, student_id: Optional[str] = None, k: int = 5) -> List[Dict]:
+    def search_learning_plans(self, query: str, student_id: str = None, k: int = 5) -> List[Dict]:
         """搜索学习计划"""
-        vectorstore = Chroma(
-            client=self.chroma_client,
-            collection_name=self.learning_plans_collection,
-            embedding_function=self.embeddings
-        )
-        
-        # 构建过滤器
-        filter_dict = {}
+        # 构建查询条件
+        where_clause = {"type": "learning_plan"}
         if student_id:
-            filter_dict["student_id"] = student_id
+            where_clause["student_id"] = student_id
+        
+        # 获取查询的嵌入向量
+        query_embedding = self.embeddings.embed_query(query)
         
         # 执行搜索
-        results = vectorstore.similarity_search(
-            query=query,
-            k=k,
-            filter=filter_dict if filter_dict else None
+        results = self.learning_plans_collection.query(
+            query_embeddings=[query_embedding],
+            where=where_clause,
+            n_results=k
         )
         
-        # 格式化结果
+        # 格式化返回结果
         formatted_results = []
-        for doc in results:
-            formatted_results.append({
-                "content": doc.page_content,
-                "metadata": doc.metadata,
-                "score": getattr(doc, "score", None)
-            })
+        if results['ids'] and results['ids'][0]:
+            for i in range(len(results['ids'][0])):
+                formatted_results.append({
+                    'id': results['ids'][0][i],
+                    'content': results['documents'][0][i],
+                    'metadata': results['metadatas'][0][i],
+                    'distance': results['distances'][0][i] if 'distances' in results else None
+                })
         
         return formatted_results
     
-    def store_teaching_material(self, material_id: str, content: str, metadata: Dict):
+    def store_teaching_material(self, material_id: str, content: str, metadata: Dict[str, Any]):
         """存储教学材料"""
-        documents = [
-            Document(
-                page_content=content,
-                metadata={
-                    "material_id": material_id,
-                    "type": "teaching_material",
-                    **metadata
-                }
-            )
-        ]
-        
         # 分割文本
-        splits = self.text_splitter.split_documents(documents)
+        chunks = self.text_splitter.split_text(content)
         
-        # 创建或获取向量存储
-        vectorstore = Chroma(
-            client=self.chroma_client,
-            collection_name=self.teaching_materials_collection,
-            embedding_function=self.embeddings
-        )
+        # 为每个块生成ID和嵌入
+        chunk_ids = []
+        chunk_embeddings = []
+        chunk_metadatas = []
         
-        # 添加文档
-        vectorstore.add_documents(splits)
+        for i, chunk in enumerate(chunks):
+            chunk_id = f"{material_id}_chunk_{i}"
+            chunk_ids.append(chunk_id)
+            
+            # 获取嵌入向量
+            embedding = self.embeddings.embed_query(chunk)
+            chunk_embeddings.append(embedding)
+            
+            # 准备元数据
+            chunk_metadata = metadata.copy()
+            chunk_metadata.update({
+                "material_id": material_id,
+                "chunk_index": i,
+                "type": "teaching_material"
+            })
+            chunk_metadatas.append(chunk_metadata)
+        
+        # 批量存储到ChromaDB
+        if chunk_ids:
+            self.teaching_materials_collection.add(
+                ids=chunk_ids,
+                embeddings=chunk_embeddings,
+                documents=chunks,
+                metadatas=chunk_metadatas
+            )
     
-    def search_teaching_materials(self, query: str, subject: Optional[str] = None, 
-                                level: Optional[str] = None, k: int = 5) -> List[Dict]:
+    def search_teaching_materials(self, query: str, subject: str = None, k: int = 5) -> List[Dict]:
         """搜索教学材料"""
-        vectorstore = Chroma(
-            client=self.chroma_client,
-            collection_name=self.teaching_materials_collection,
-            embedding_function=self.embeddings
-        )
-        
-        # 构建过滤器
-        filter_dict = {}
+        # 构建查询条件
+        where_clause = {"type": "teaching_material"}
         if subject:
-            filter_dict["subject"] = subject
-        if level:
-            filter_dict["level"] = level
+            where_clause["subject"] = subject
+        
+        # 获取查询的嵌入向量
+        query_embedding = self.embeddings.embed_query(query)
         
         # 执行搜索
-        results = vectorstore.similarity_search(
-            query=query,
-            k=k,
-            filter=filter_dict if filter_dict else None
+        results = self.teaching_materials_collection.query(
+            query_embeddings=[query_embedding],
+            where=where_clause,
+            n_results=k
         )
         
-        # 格式化结果
+        # 格式化返回结果
         formatted_results = []
-        for doc in results:
-            formatted_results.append({
-                "content": doc.page_content,
-                "metadata": doc.metadata
-            })
+        if results['ids'] and results['ids'][0]:
+            for i in range(len(results['ids'][0])):
+                formatted_results.append({
+                    'id': results['ids'][0][i],
+                    'content': results['documents'][0][i],
+                    'metadata': results['metadatas'][0][i],
+                    'distance': results['distances'][0][i] if 'distances' in results else None
+                })
         
         return formatted_results
     
-    def update_student_profile_embedding(self, student_id: str, profile_data: Dict):
-        """更新学生档案的向量表示"""
-        # 格式化学生档案信息
-        profile_text = self._format_student_profile(profile_data)
+    def store_student_profile(self, student_id: str, profile_data: Dict[str, Any]):
+        """存储学生档案到向量数据库"""
+        # 准备文档内容
+        doc_content = f"""
+学生姓名: {profile_data.get('name', '')}
+年龄: {profile_data.get('age', '')}
+年级: {profile_data.get('grade', '')}
+学习风格: {profile_data.get('learning_style', '')}
+兴趣爱好: {', '.join(profile_data.get('interests', []))}
+学习目标: {profile_data.get('learning_goals', '')}
+"""
         
-        documents = [
-            Document(
-                page_content=profile_text,
-                metadata={
-                    "student_id": student_id,
-                    "type": "student_profile",
-                    "name": profile_data.get("name", ""),
-                    "grade": profile_data.get("grade", ""),
-                    "updated_at": profile_data.get("updated_at", "")
-                }
-            )
-        ]
+        # 获取嵌入向量
+        embedding = self.embeddings.embed_query(doc_content)
         
-        # 创建或获取向量存储
-        vectorstore = Chroma(
-            client=self.chroma_client,
-            collection_name=self.student_profiles_collection,
-            embedding_function=self.embeddings
+        # 存储到ChromaDB
+        self.student_profiles_collection.upsert(
+            ids=[student_id],
+            embeddings=[embedding],
+            documents=[doc_content],
+            metadatas=[{
+                "student_id": student_id,
+                "name": profile_data.get('name', ''),
+                "type": "student_profile"
+            }]
         )
-        
-        # 先删除旧的档案（如果存在）
-        try:
-            collection = self.chroma_client.get_collection(self.student_profiles_collection)
-            # 获取该学生的所有文档ID
-            results = collection.get(where={"student_id": student_id})
-            if results['ids']:
-                collection.delete(ids=results['ids'])
-        except:
-            pass
-        
-        # 添加新档案
-        vectorstore.add_documents(documents)
     
     def find_similar_students(self, student_id: str, k: int = 3) -> List[Dict]:
-        """查找相似的学生（用于推荐学习伙伴或参考案例）"""
-        vectorstore = Chroma(
-            client=self.chroma_client,
-            collection_name=self.student_profiles_collection,
-            embedding_function=self.embeddings
+        """查找相似的学生档案"""
+        # 先获取当前学生的档案
+        current_student = self.student_profiles_collection.get(
+            ids=[student_id]
         )
         
-        # 先获取当前学生的档案
-        collection = self.chroma_client.get_collection(self.student_profiles_collection)
-        current_student_results = collection.get(where={"student_id": student_id})
-        
-        if not current_student_results['documents']:
+        if not current_student['ids']:
             return []
         
-        # 使用第一个文档进行相似度搜索
-        query_text = current_student_results['documents'][0]
+        # 使用当前学生的档案内容进行相似度搜索
+        current_doc = current_student['documents'][0]
+        query_embedding = self.embeddings.embed_query(current_doc)
         
-        # 搜索相似学生
-        results = vectorstore.similarity_search(
-            query=query_text,
-            k=k + 1,  # 多搜索一个，因为会包含自己
+        # 搜索相似学生（排除自己）
+        results = self.student_profiles_collection.query(
+            query_embeddings=[query_embedding],
+            where={"type": "student_profile"},
+            n_results=k + 1  # 多查一个，因为要排除自己
         )
         
-        # 格式化结果，排除自己
-        similar_students = []
-        for doc in results:
-            if doc.metadata.get("student_id") != student_id:
-                similar_students.append({
-                    "student_id": doc.metadata.get("student_id"),
-                    "name": doc.metadata.get("name"),
-                    "grade": doc.metadata.get("grade"),
-                    "similarity_score": getattr(doc, "score", None)
-                })
-                if len(similar_students) >= k:
-                    break
+        # 格式化结果并排除自己
+        formatted_results = []
+        if results['ids'] and results['ids'][0]:
+            for i in range(len(results['ids'][0])):
+                if results['ids'][0][i] != student_id:
+                    formatted_results.append({
+                        'id': results['ids'][0][i],
+                        'content': results['documents'][0][i],
+                        'metadata': results['metadatas'][0][i],
+                        'similarity': 1 - results['distances'][0][i] if 'distances' in results else None
+                    })
         
-        return similar_students
-    
-    def _format_learning_plan(self, plan: Dict) -> str:
-        """格式化学习计划为文本"""
-        text_parts = []
-        
-        text_parts.append(f"学习计划：{plan.get('title', '未命名计划')}")
-        
-        if plan.get('description'):
-            text_parts.append(f"描述：{plan['description']}")
-        
-        if plan.get('objectives'):
-            text_parts.append("学习目标：")
-            for obj in plan['objectives']:
-                text_parts.append(f"- {obj}")
-        
-        if plan.get('content'):
-            text_parts.append("学习内容：")
-            content = plan['content']
-            if isinstance(content, dict):
-                for key, value in content.items():
-                    text_parts.append(f"{key}: {value}")
-            else:
-                text_parts.append(str(content))
-        
-        return "\n".join(text_parts)
-    
-    def _format_student_profile(self, profile: Dict) -> str:
-        """格式化学生档案为文本"""
-        text_parts = []
-        
-        text_parts.append(f"学生姓名：{profile.get('name', '未知')}")
-        text_parts.append(f"年龄：{profile.get('age', '未知')}")
-        text_parts.append(f"年级：{profile.get('grade', '未知')}")
-        
-        if profile.get('interests'):
-            text_parts.append(f"兴趣爱好：{', '.join(profile['interests'])}")
-        
-        if profile.get('learning_goals'):
-            text_parts.append(f"学习目标：{profile['learning_goals']}")
-        
-        if profile.get('learning_style'):
-            text_parts.append(f"学习风格：{profile['learning_style']}")
-        
-        if profile.get('background'):
-            text_parts.append(f"背景信息：{profile['background']}")
-        
-        return "\n".join(text_parts)
+        return formatted_results[:k]
     
     def clear_collection(self, collection_name: str):
-        """清空指定集合（仅用于测试）"""
+        """清空指定的集合（用于测试或重置）"""
         try:
-            collection = self.chroma_client.get_collection(collection_name)
-            # 获取所有文档ID并删除
-            results = collection.get()
-            if results['ids']:
-                collection.delete(ids=results['ids'])
-        except:
-            pass 
+            self.client.delete_collection(collection_name)
+            # 重新初始化集合
+            self._init_collections()
+        except Exception as e:
+            print(f"清空集合 {collection_name} 失败: {e}") 

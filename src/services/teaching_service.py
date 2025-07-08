@@ -3,6 +3,8 @@
 """
 import json
 from typing import List, Dict, Optional
+
+from langchain_core.messages import BaseMessage
 from sqlalchemy.orm import Session
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 

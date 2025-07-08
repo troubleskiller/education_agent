@@ -50,4 +50,28 @@ class StudentResponse(StudentBase):
 class StudentListResponse(BaseModel):
     """学生列表响应模式"""
     students: List[StudentResponse]
-    total: int 
+    total: int
+
+
+class LearningPlanBase(BaseModel):
+    """学习计划基础模式"""
+    id: str
+    title: str
+    description: Optional[str] = None
+    objectives: List[str] = Field(default_factory=list)
+    content: Dict = Field(default_factory=dict)
+    estimated_days: int = 30
+    difficulty_level: int = 3
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class StudentWithPlans(StudentResponse):
+    """包含学习计划的学生响应模式"""
+    learning_plans: List[LearningPlanBase] = Field(default_factory=list)
+    
+    class Config:
+        from_attributes = True 

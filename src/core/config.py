@@ -64,18 +64,21 @@ class Settings(BaseSettings):
     claude_api_key: str = Field(default="", env="CLAUDE_API_KEY")
     claude_model: str = Field(default="claude-3-opus-20240229", env="CLAUDE_MODEL")
     
-    # ChromaDB云配置
-    chroma_api_key: str = Field(
-        default="ck-8WJqHLZ7uHmqE8GbX36BvSbPkEdneQ6P32gM4K9shw39",
-        env="CHROMA_API_KEY"
+    # 本地向量数据库配置
+    vector_db_path: str = Field(
+        default="./data/chroma_db",
+        env="VECTOR_DB_PATH"
     )
-    chroma_tenant: str = Field(
-        default="4568293d-4b29-434d-9e2b-f0972d5c0c52",
-        env="CHROMA_TENANT"
+    
+    # 嵌入模型配置（使用本地或远程）
+    embeddings_provider: Literal["openai", "local"] = Field(
+        default="openai",
+        env="EMBEDDINGS_PROVIDER"
     )
-    chroma_database: str = Field(
-        default="education_agent",
-        env="CHROMA_DATABASE"
+    # 如果使用本地嵌入模型
+    local_embeddings_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        env="LOCAL_EMBEDDINGS_MODEL"
     )
     
     # 日志配置
@@ -104,6 +107,7 @@ def ensure_directories():
     directories = [
         "./logs",
         "./data",
+        "./data/chroma_db",
     ]
     
     for directory in directories:

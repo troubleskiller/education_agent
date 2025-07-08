@@ -1,5 +1,9 @@
 # 教育智能体系统使用指南
 
+## 系统概述
+
+教育智能体系统是一个基于大语言模型的个性化教育平台，提供智能评估、个性化学习计划制定和启发式教学等功能。
+
 ## 快速开始
 
 ### 1. 环境准备
@@ -39,10 +43,14 @@ QWEN_MODEL=qwen-turbo
 CLAUDE_API_KEY=your-claude-api-key-here
 CLAUDE_MODEL=claude-3-opus-20240229
 
-# ChromaDB云配置（已预设，无需修改）
-CHROMA_API_KEY=ck-APjQHA3VvJ8NpehfqWV6uzJKu456oduAMHo2jGPEZJQe
-CHROMA_TENANT=4568293d-4b29-434d-9e2b-f0972d5c0c52
-CHROMA_DATABASE=education_agent
+# 本地向量数据库配置
+VECTOR_DB_PATH=./data/chroma_db  # 本地存储路径
+
+# 嵌入模型配置
+EMBEDDINGS_PROVIDER=openai  # 可选: openai 或 local
+# 如果使用本地嵌入模型（免费，但速度较慢）
+# EMBEDDINGS_PROVIDER=local
+# LOCAL_EMBEDDINGS_MODEL=sentence-transformers/all-MiniLM-L6-v2
 
 # 数据库配置
 DATABASE_URL=sqlite:///./education_agent.db
@@ -99,10 +107,54 @@ python start.py
 - 输入 `y` 初始化数据库
 - 系统将自动启动
 
-### 4. 访问系统
+## 前端界面使用
 
-- 主页：http://localhost:8000
-- API文档：http://localhost:8000/docs
+### 访问系统
+
+启动系统后，在浏览器中访问：http://localhost:8000
+
+### 主要功能模块
+
+#### 1. 学生管理
+- **创建学生档案**：点击"+ 新建学生"按钮，填写学生基本信息
+  - 姓名（必填）
+  - 年龄、年级
+  - 兴趣爱好（用逗号分隔）
+  - 学习目标
+  - 学习风格（视觉型/听觉型/动手型/阅读型）
+
+- **查看学生列表**：主页显示所有已创建的学生档案
+
+#### 2. 智能对话
+- 选择学生开始对话评估
+- 系统会通过多轮对话了解学生的：
+  - 学习目标和动机
+  - 当前知识水平
+  - 可用学习时间
+  - 学习偏好和挑战
+- 对话结束后自动生成个性化学习计划
+
+#### 3. 互动教学
+- 选择学生和学习主题
+- 系统采用苏格拉底式教学法
+- 通过引导式提问帮助学生深入理解知识
+- 实时反馈和纠正
+
+#### 4. 学习计划
+- 查看为每个学生生成的个性化学习计划
+- 包含学习目标、预计时长、难度等级
+- 跟踪学习进度
+
+### 使用流程
+
+1. **新用户入门**
+   - 创建学生档案 → 进入智能对话 → 完成评估 → 查看学习计划
+
+2. **日常学习**
+   - 选择学生 → 进入互动教学 → 选择主题 → 开始学习
+
+3. **进度跟踪**
+   - 在学习计划页面查看完成度和进展
 
 ## 使用流程
 
